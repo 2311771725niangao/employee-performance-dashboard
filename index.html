@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>员工绩效后台</title>
+<style>
+/* ========== 风格底座：新拟物 / soft UI ========== */
+:root {
+  --bg: #F2E8E0;
+  --ink: #23201D;
+  --ink2: #6E655E;
+  --blue: #2F4BD0;
+  --alert: #E2552D;
+  --hi: #FFFFFF;
+  --lo: #D6C8BD;
+  --well: #E4D7CC;
+
+  /* 所有阴影表统一为 4 层（2 外 + 2 内），保证外阴影 <-> 内阴影可平滑插值 */
+  --sh-raise: -6px -6px 14px #FFFFFF, 6px 6px 14px #D6C8BD,
+              inset 0 0 0 0 rgba(214,200,189,0), inset 0 0 0 0 rgba(255,255,255,0);
+  --sh-hover: -8px -8px 18px #FFFFFF, 8px 8px 18px #D6C8BD,
+              inset 0 0 0 0 rgba(214,200,189,0), inset 0 0 0 0 rgba(255,255,255,0);
+  --sh-small: -3px -3px 7px #FFFFFF, 3px 3px 7px #D6C8BD,
+              inset 0 0 0 0 rgba(214,200,189,0), inset 0 0 0 0 rgba(255,255,255,0);
+  --sh-sink:  0 0 0 0 rgba(255,255,255,0), 0 0 0 0 rgba(214,200,189,0),
+              inset 4px 4px 10px #D6C8BD, inset -4px -4px 10px #FFFFFF;
+
+  --t: 160ms;
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: "Avenir Next", "Nunito Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--sans); font-size: 15px; line-height: 1.6;
+  min-height: 100vh;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* 指示灯：正圆 */
+.led {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none;
+  background: #CDBFB3; box-shadow: inset 1px 1px 2px #B3A397, inset -1px -1px 2px #FFFFFF;
+  transition: background-color var(--t), box-shadow var(--t) var(--spring);
+}
+.led.on {
+  background: var(--blue);
+  box-shadow: 0 0 0 3px rgba(47,75,208,.14), 0 0 10px 2px rgba(47,75,208,.55);
+}
+
+/* ========== 实体键帽 ========== */
+.key {
+  display: inline-flex; align-items: center; gap: 12px;
+  padding: 14px 18px; border-radius: 16px; background: var(--bg);
+  font-weight: 700; letter-spacing: .08em; text-align: left; user-select: none;
+  box-shadow: var(--sh-raise); touch-action: manipulation;
+  transition: transform var(--t) var(--spring), box-shadow var(--t) var(--spring), color var(--t);
+}
+@media (hover: hover) {
+  .key:hover:not(.is-current):not(:active) { transform: translateY(-2px); box-shadow: var(--sh-hover); }
+}
+.key:active, .key.is-current { transform: translateY(2px); box-shadow: var(--sh-sink); }
+.key.is-current { color: var(--blue); }
+.key.is-current .led, .key:active .led { background: var(--blue); box-shadow: 0 0 0 3px rgba(47,75,208,.14), 0 0 10px 2px rgba(47,75,208,.55); }
+
+/* ========== 布局 ========== */
+.app { display: flex; min-height: 100vh; }
+.side {
+  position: sticky; top: 0; align-self: flex-start; height: 100vh; width: 248px; flex: none;
+  padding: 40px 28px 32px; display: flex; flex-direction: column; gap: 36px; background: var(--bg); z-index: 30;
+}
+.brand { display: flex; align-items: center; gap: 12px; padding-left: 4px; }
+.brand-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--blue); flex: none; }
+.brand h1 { font-size: 20px; line-height: 1.2; letter-spacing: .12em; }
+.brand p { font: 600 11px/1.4 var(--mono); letter-spacing: .16em; color: var(--ink2); }
+.nav { display: flex; flex-direction: column; gap: 18px; }
+.nav .key { width: 100%; }
+.nav .key em { margin-left: auto; font: 600 12px/1 var(--mono); font-style: normal; color: var(--ink2); letter-spacing: .04em; }
+.nav .key.is-current em { color: var(--blue); }
+.side-note { margin-top: auto; padding-left: 4px; font-size: 12px; line-height: 1.7; color: var(--ink2); }
+
+main { flex: 1; min-width: 0; max-width: 1120px; padding: 40px 48px 96px; }
+.panel { scroll-margin-top: 24px; padding-bottom: 56px; margin-bottom: 56px; border-bottom: 1px solid var(--well); }
+.panel:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.p-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 32px; }
+.p-head .no { font: 600 12px/1 var(--mono); letter-spacing: .16em; color: var(--ink2); }
+.p-head h2 { font-size: 24px; line-height: 1.3; letter-spacing: .08em; }
+.p-head p { font-size: 14px; color: var(--ink2); margin-top: 2px; }
+
+/* ========== 01 机械数字 ========== */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 36px 40px; }
+.metric .lbl { font-size: 14px; font-weight: 700; letter-spacing: .1em; margin-bottom: 14px; }
+.metric .row { display: flex; align-items: center; gap: 12px; }
+.metric .unit { font: 700 18px/1 var(--mono); color: var(--ink2); }
+.metric .delta { margin-top: 16px; font-size: 13px; color: var(--ink2); }
+.metric .delta b { font-family: var(--mono); font-weight: 700; margin-left: 4px; color: var(--blue); }
+.metric .delta.down b { color: var(--alert); }
+.odo {
+  position: relative; display: inline-flex; align-items: center; gap: 3px;
+  padding: 10px 12px; border-radius: 16px; box-shadow: var(--sh-sink);
+  font: 700 34px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--ink);
+}
+.odo.key-data { color: var(--blue); }
+.odo::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(180deg, rgba(214,200,189,.6), rgba(214,200,189,0) 30%, rgba(214,200,189,0) 70%, rgba(214,200,189,.6));
+}
+.wheel { width: .66em; height: 1.2em; overflow: hidden; border-radius: 4px; color: inherit; transition: color 300ms; }
+.wheel.lead { color: var(--ink2); }
+.strip { display: block; will-change: transform; transition-property: transform; transition-timing-function: cubic-bezier(.22, .9, .32, 1.12); }
+.strip i { display: block; height: 1.2em; line-height: 1.2em; text-align: center; font-style: normal; }
+.odo .sep { width: .3em; text-align: center; line-height: 1.2em; color: var(--ink2); }
+
+/* ========== 02 旋钮 + 柱状图 ========== */
+.target { display: grid; grid-template-columns: 260px 1fr; gap: 48px; align-items: center; }
+.dial-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.dial { position: relative; width: 240px; height: 240px; border-radius: 50%; touch-action: none; cursor: grab; user-select: none; }
+.dial.grabbing { cursor: grabbing; }
+.dial svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.dial .trk { fill: none; stroke: var(--well); stroke-width: 10; stroke-linecap: round; }
+.dial .arc { fill: none; stroke: var(--blue); stroke-width: 10; stroke-linecap: round; transition: stroke-dasharray var(--t) var(--spring), opacity var(--t); filter: drop-shadow(0 0 4px rgba(47,75,208,.45)); }
+.dial .tk { stroke: #A89B90; stroke-width: 2; stroke-linecap: round; transition: stroke var(--t); }
+.dial .tk.on { stroke: var(--blue); }
+.knob {
+  position: absolute; inset: 45px; border-radius: 50%; background: var(--bg); box-shadow: var(--sh-raise);
+  transition: transform var(--t) var(--spring), box-shadow var(--t) var(--spring);
+}
+.dial.grabbing .knob { transform: scale(.985); box-shadow: var(--sh-small); }
+.knob-rot { position: absolute; inset: 0; border-radius: 50%; transition: transform var(--t) var(--spring); }
+.knob-rot::before {
+  content: ""; position: absolute; left: 50%; top: 9px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%;
+  background: var(--blue); box-shadow: 0 0 8px 1px rgba(47,75,208,.6);
+}
+.knob-disc {
+  position: absolute; inset: 30px; border-radius: 50%; box-shadow: var(--sh-sink);
+  display: flex; align-items: baseline; justify-content: center; padding-top: 25px; font-family: var(--mono); color: var(--blue);
+}
+.knob-disc b { font-size: 28px; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.knob-disc span { font-size: 13px; font-weight: 700; margin-left: 1px; }
+.dial-end { position: absolute; top: 216px; transform: translateX(-50%); font: 600 12px/1 var(--mono); color: var(--ink2); }
+.dial-wrap .cap { font-size: 13px; color: var(--ink2); text-align: center; }
+
+.readout { display: flex; flex-wrap: wrap; gap: 8px 32px; margin-bottom: 20px; font-size: 14px; color: var(--ink2); }
+.readout b { font-family: var(--mono); font-size: 18px; color: var(--ink); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.readout b.blue { color: var(--blue); }
+.readout b.warn { color: var(--alert); }
+.plot { position: relative; height: 240px; margin: 20px 72px 0 40px; }
+.gl { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--well); }
+.gl span { position: absolute; left: -40px; top: -9px; width: 32px; text-align: right; font: 600 12px/18px var(--mono); color: var(--ink2); }
+.bars { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 3%; padding: 0 1.5%; }
+.bar {
+  position: relative; flex: 1; height: 0; border-radius: 8px 8px 3px 3px; background: #CDBFB3;
+  transition: height 500ms cubic-bezier(.2,.8,.3,1), background-color 500ms ease;
+}
+.bar.hit { background: var(--blue); }
+.bar b { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); font: 700 13px/1.2 var(--mono); color: var(--ink); transition: color 500ms ease; }
+.bar.hit b { color: #FFFFFF; }
+.tline { position: absolute; left: 0; right: -68px; height: 0; border-top: 2px dashed var(--ink); z-index: 2; pointer-events: none; transition: bottom var(--t) var(--spring); }
+.tline span { position: absolute; right: 0; bottom: 4px; font: 700 12px/1.5 var(--mono); white-space: nowrap; }
+.xs { display: flex; gap: 3%; padding: 12px 1.5% 0; margin: 0 72px 0 40px; }
+.xs span { flex: 1; text-align: center; font-size: 13px; color: var(--ink2); white-space: nowrap; }
+
+/* ========== 03 开关通电 ========== */
+.modules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 40px; }
+.module { padding: 24px 24px 22px; border-radius: 24px; background: var(--bg); box-shadow: var(--sh-raise); }
+.mod-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.module h3 { font-size: 17px; letter-spacing: .08em; line-height: 34px; }
+.mod-ctl { display: flex; align-items: center; gap: 14px; }
+.module > p { font-size: 13px; color: var(--ink2); margin: 2px 0 18px; }
+.sw { position: relative; width: 64px; height: 34px; border-radius: 17px; box-shadow: var(--sh-sink); touch-action: none; cursor: pointer; flex: none; }
+.sw .thumb {
+  position: absolute; left: 4px; top: 4px; width: 26px; height: 26px; border-radius: 50%; background: var(--bg);
+  box-shadow: var(--sh-small); transform: translateX(var(--tx, 0px));
+  transition: transform var(--t) var(--spring);
+}
+.sw .thumb::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: #CDBFB3; transition: background-color var(--t); }
+.sw[aria-checked="true"] { --tx: 30px; }
+.sw[aria-checked="true"] .thumb::after { background: var(--blue); }
+.sw.is-drag .thumb { transition: none; }
+.mini {
+  display: flex; align-items: flex-end; gap: 5px; height: 84px;
+  filter: grayscale(1); opacity: .5; transition: filter 500ms ease, opacity 500ms ease;
+}
+.module.on .mini { filter: grayscale(0); opacity: 1; }
+.mini i { flex: 1; border-radius: 4px 4px 2px 2px; }
+.mod-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; font-size: 13px; color: var(--ink2); }
+.mod-foot b { font: 700 13px/1 var(--mono); color: var(--ink); }
+.module.on .mod-state { color: var(--blue); font-weight: 700; }
+
+/* ========== 04 卡片抽拉 ========== */
+.cards { display: grid; grid-template-columns: 1fr 380px; gap: 48px; align-items: center; }
+.cards-copy p { font-size: 14px; color: var(--ink2); max-width: 36em; }
+.deck-status { display: flex; align-items: center; gap: 12px; margin-top: 24px; padding: 14px 0; border-top: 1px solid var(--well); border-bottom: 1px solid var(--well); flex-wrap: wrap; }
+.deck-status #deckMsg { font-weight: 700; font-size: 14px; letter-spacing: .04em; color: var(--ink2); min-width: 11em; }
+.deck-status[data-s="over"] #deckMsg { color: var(--blue); }
+.meter { flex: 1; min-width: 80px; height: 6px; border-radius: 3px; background: var(--well); overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--ink2); border-radius: 3px; }
+.deck-status[data-s="over"] .meter i { background: var(--blue); }
+.deck-status #deckDist { font: 600 13px/1 var(--mono); color: var(--ink2); min-width: 7.5em; text-align: right; }
+.deck { position: relative; width: 100%; max-width: 380px; height: 300px; margin: 0 auto; }
+.pcard {
+  position: absolute; left: 0; right: 0; top: 0; height: 244px; padding: 22px 24px; border-radius: 24px;
+  background: var(--bg); box-shadow: var(--sh-raise); user-select: none; -webkit-user-select: none; will-change: transform;
+}
+.pcard.top { cursor: grab; touch-action: none; }
+.pcard.top.drag { cursor: grabbing; box-shadow: var(--sh-hover); }
+.pcard:not(.top) { pointer-events: none; }
+.pc-top { display: flex; align-items: center; gap: 14px; }
+.pc-ava { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; box-shadow: var(--sh-sink); font-weight: 800; font-size: 18px; flex: none; }
+.pc-top h3 { font-size: 17px; line-height: 1.3; letter-spacing: .06em; }
+.pc-top p { font-size: 12px; color: var(--ink2); }
+.pc-score { margin-left: auto; text-align: right; }
+.pc-score b { display: block; font: 800 34px/1 var(--mono); color: var(--blue); font-variant-numeric: tabular-nums; }
+.pc-score small { font-size: 12px; color: var(--ink2); }
+.pc-dims { list-style: none; margin-top: 20px; display: grid; gap: 12px; }
+.pc-dims li { display: grid; grid-template-columns: 6.6em 1fr 2.2em; align-items: center; gap: 10px; font-size: 13px; color: var(--ink2); }
+.pc-dims i { display: block; height: 6px; border-radius: 3px; background: var(--well); overflow: hidden; }
+.pc-dims u { display: block; height: 100%; background: #A89B90; border-radius: 3px; }
+.pc-dims b { font: 700 13px/1 var(--mono); color: var(--ink); text-align: right; }
+.pc-grip { position: absolute; left: 50%; bottom: 12px; width: 44px; height: 4px; margin-left: -22px; border-radius: 2px; background: #CDBFB3; }
+
+.overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: rgba(35,32,29,.42); opacity: 0; visibility: hidden; transition: opacity 220ms ease, visibility 0s linear 220ms; }
+.overlay.show { opacity: 1; visibility: visible; transition: opacity 220ms ease; }
+.detail { width: min(560px, 100%); max-height: calc(100vh - 40px); overflow: auto; border-radius: 24px; background: var(--bg); padding: 30px 32px 28px; box-shadow: var(--sh-raise); transition: transform 420ms var(--spring); }
+.detail.closing { transition: transform 220ms ease-in; }
+.detail-in { transition: opacity 260ms ease 80ms; }
+.detail.from .detail-in { opacity: 0; transition: none; }
+.d-head { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+.d-head .pc-ava { width: 56px; height: 56px; font-size: 21px; }
+.d-head h3 { font-size: 20px; line-height: 1.3; letter-spacing: .06em; }
+.d-head p { font-size: 13px; color: var(--ink2); }
+.d-tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.d-tbl th { text-align: left; font-weight: 600; font-size: 13px; color: var(--ink2); padding: 8px 0; border-bottom: 1px solid var(--well); }
+.d-tbl td { padding: 10px 0; border-bottom: 1px solid var(--well); }
+.d-tbl .n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.d-tbl th.n { text-align: right; }
+.d-tbl tfoot td { font-weight: 800; border-bottom: 0; }
+.d-tbl tfoot .n.blue { color: var(--blue); font-size: 18px; }
+.d-trend { display: flex; align-items: flex-end; gap: 14px; height: 76px; margin: 22px 0 6px; }
+.d-trend div { flex: 1; position: relative; background: #CDBFB3; border-radius: 6px 6px 2px 2px; }
+.d-trend div:last-child { background: var(--blue); }
+.d-trend b { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); padding-bottom: 3px; font: 700 12px/1.2 var(--mono); color: var(--ink2); }
+.d-trend div:last-child b { color: var(--blue); }
+.d-xs { display: flex; gap: 14px; margin-bottom: 18px; }
+.d-xs span { flex: 1; text-align: center; font-size: 12px; color: var(--ink2); }
+.d-note { font-size: 14px; color: var(--ink2); margin-bottom: 22px; }
+.d-note b { color: var(--ink); }
+.detail .key { width: 100%; justify-content: center; }
+
+.snd { position: fixed; right: 24px; bottom: 24px; z-index: 40; padding: 12px 16px; font-size: 13px; }
+
+/* ========== < 900px：菜单折到顶部横排 ========== */
+@media (max-width: 1100px) {
+  .target { grid-template-columns: 1fr; gap: 36px; justify-items: center; }
+  .target .chart-zone { width: 100%; }
+  .cards { grid-template-columns: 1fr; gap: 36px; }
+}
+@media (max-width: 900px) {
+  .app { flex-direction: column; }
+  .side { position: sticky; top: 0; width: 100%; height: auto; flex-direction: row; align-items: center; gap: 20px; padding: 14px 20px 22px; }
+  .brand p, .side-note, .nav .key em { display: none; }
+  .brand h1 { font-size: 17px; white-space: nowrap; }
+  .nav { flex: 1; flex-direction: row; gap: 14px; }
+  .nav .key { flex: 1; width: auto; justify-content: center; padding: 12px 10px; font-size: 14px; white-space: nowrap; }
+  main { padding: 28px 20px 72px; }
+  .panel { scroll-margin-top: 96px; }
+}
+@media (max-width: 600px) {
+  .brand { display: none; }
+  .side { padding: 12px 12px 20px; }
+  .nav { gap: 10px; }
+  .nav .key { flex-direction: column; gap: 8px; padding: 12px 4px; font-size: 13px; letter-spacing: .02em; }
+  .p-head h2 { font-size: 21px; }
+  .dial { transform: scale(.92); }
+  .plot { margin: 20px 46px 0 30px; }
+  .gl span { left: -30px; width: 24px; }
+  .tline { right: -46px; }
+  .tline span { font-size: 11px; }
+  .xs { margin: 0 46px 0 30px; gap: 2%; padding: 12px 0 0; }
+  .xs span { font-size: 10px; letter-spacing: -.02em; }
+  .bar b { font-size: 11px; }
+  .cards-copy .deck-status #deckDist { min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { transition-duration: 1ms !important; transition-delay: 0s !important; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="side">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <div><h1>绩效中枢</h1><p>PERFORMANCE</p></div>
+    </div>
+    <nav class="nav" id="nav" aria-label="板块导航">
+      <button class="key is-current" data-target="sec-overview" aria-current="true"><i class="led"></i><span>数据概览</span><em>01</em></button>
+      <button class="key" data-target="sec-target"><i class="led"></i><span>目标设定</span><em>02</em></button>
+      <button class="key" data-target="sec-modules"><i class="led"></i><span>功能模块</span><em>03</em></button>
+      <button class="key" data-target="sec-cards"><i class="led"></i><span>员工绩效</span><em>04</em></button>
+    </nav>
+    <p class="side-note">演示数据，全部写死<br>离线可用，无外部依赖</p>
+  </aside>
+
+  <main>
+    <!-- 数据概览：机械数字 -->
+    <section class="panel" id="sec-overview" aria-labelledby="h-overview">
+      <div class="p-head">
+        <div><div class="no">01 / OVERVIEW</div><h2 id="h-overview">数据概览</h2><p>三项核心指标，切换周期时数字逐位翻滚</p></div>
+        <div style="display:flex;gap:18px" role="group" aria-label="统计周期" id="period">
+          <button class="key is-current" data-p="month" aria-pressed="true"><i class="led"></i>本月</button>
+          <button class="key" data-p="year" aria-pressed="false"><i class="led"></i>全年</button>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <div class="lbl">人均产值</div>
+          <div class="row"><span class="unit">¥</span><div class="odo" id="odo-output" role="img"></div></div>
+          <div class="delta" id="dl-output"></div>
+        </div>
+        <div class="metric">
+          <div class="lbl">目标达成率</div>
+          <div class="row"><div class="odo key-data" id="odo-rate" role="img"></div><span class="unit">%</span></div>
+          <div class="delta" id="dl-rate"></div>
+        </div>
+        <div class="metric">
+          <div class="lbl">培训参与</div>
+          <div class="row"><div class="odo" id="odo-train" role="img"></div><span class="unit">人次</span></div>
+          <div class="delta" id="dl-train"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 目标设定：旋钮 -->
+    <section class="panel" id="sec-target" aria-labelledby="h-target">
+      <div class="p-head">
+        <div><div class="no">02 / TARGET</div><h2 id="h-target">目标设定</h2><p>拖动旋钮设定目标达成率，每 5% 一格，图表实时联动</p></div>
+      </div>
+      <div class="target">
+        <div class="dial-wrap">
+          <div class="dial" id="dial" role="slider" tabindex="0" aria-label="目标达成率" aria-valuemin="0" aria-valuemax="100" aria-valuenow="60" aria-valuetext="60%">
+            <svg viewBox="0 0 240 240" aria-hidden="true">
+              <g transform="rotate(135 120 120)">
+                <circle class="trk" cx="120" cy="120" r="108" id="trk"></circle>
+                <circle class="arc" cx="120" cy="120" r="108" id="arc"></circle>
+              </g>
+              <g id="ticks"></g>
+            </svg>
+            <div class="knob"><i class="knob-rot" id="knobRot"></i><div class="knob-disc"><b id="dialVal">60</b><span>%</span></div></div>
+            <span class="dial-end" style="left:44px">0</span><span class="dial-end" style="left:196px">100</span>
+          </div>
+          <div class="cap">拖动旋转 · 方向键可微调</div>
+        </div>
+        <div class="chart-zone">
+          <div class="readout">
+            <span>目标值<b class="mono" id="rdTarget">60%</b></span>
+            <span>达标部门<b class="blue" id="rdHit">7</b> / 8</span>
+            <span>未达标<b class="warn" id="rdMiss">1</b></span>
+          </div>
+          <div class="plot" id="plot" role="img" aria-label="各部门达成率柱状图">
+            <div class="bars" id="bars"></div>
+            <div class="tline" id="tline"><span id="ttag">目标 60%</span></div>
+          </div>
+          <div class="xs" id="xs"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 功能模块：开关通电 -->
+    <section class="panel" id="sec-modules" aria-labelledby="h-modules">
+      <div class="p-head">
+        <div><div class="no">03 / MODULES</div><h2 id="h-modules">功能模块</h2><p>拨动开关为模块通电，图表由灰转彩</p></div>
+      </div>
+      <div class="modules" id="modules"></div>
+    </section>
+
+    <!-- 员工绩效：卡片抽拉 -->
+    <section class="panel" id="sec-cards" aria-labelledby="h-cards">
+      <div class="p-head">
+        <div><div class="no">04 / PEOPLE</div><h2 id="h-cards">员工绩效</h2><p>本季度综合绩效前三名</p></div>
+      </div>
+      <div class="cards">
+        <div class="cards-copy">
+          <p>三张卡片按绩效排名堆叠。按住最上面的卡片向外拖拽：拖动距离不足阈值会弹回原位，超过阈值松手后展开为完整详情。也可以聚焦卡片后按回车查看。</p>
+          <div class="deck-status" id="deckStatus" data-s="idle">
+            <i class="led" id="deckLed"></i>
+            <span id="deckMsg" role="status">按住顶部卡片向外拖拽</span>
+            <span class="meter" aria-hidden="true"><i id="deckMeter"></i></span>
+            <span id="deckDist" aria-hidden="true">0 / 120 px</span>
+          </div>
+        </div>
+        <div class="deck" id="deck"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<button class="key snd is-current" id="snd" aria-pressed="true" aria-label="音效开关"><i class="led"></i>音效</button>
+
+<div class="overlay" id="overlay" aria-hidden="true">
+  <div class="detail" id="detail" role="dialog" aria-modal="true" aria-label="员工绩效详情"></div>
+</div>
+
+<script>
+(() => {
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const mq = matchMedia("(prefers-reduced-motion: reduce)");
+const SVGNS = "http://www.w3.org/2000/svg";
+
+/* ============================================================
+   音效：Web Audio 程序合成，无音频文件；首次交互时才创建 AudioContext
+   ============================================================ */
+const Sfx = (() => {
+  let ac = null, master = null, on = true;
+  try { on = localStorage.getItem("sfx") !== "off"; } catch (_) {}
+  const ctx = () => {
+    if (!on) return null;
+    if (!ac) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ac = new AC(); master = ac.createGain(); master.gain.value = .22; master.connect(ac.destination);
+    }
+    if (ac.state === "suspended") ac.resume();
+    return ac;
+  };
+  const blip = ({ f0 = 800, f1 = f0, dur = .04, type = "square", vol = .5, when = 0 }) => {
+    const c = ctx(); if (!c) return;
+    const t = c.currentTime + when, o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(f1, 20), t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0008, t + dur);
+    o.connect(g).connect(master); o.start(t); o.stop(t + dur + .02);
+  };
+  const noise = ({ dur = .03, freq = 2400, q = 6, vol = .5, when = 0 }) => {
+    const c = ctx(); if (!c) return;
+    const t = c.currentTime + when, len = Math.max(1, Math.floor((dur + .02) * c.sampleRate));
+    const buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
+    src.buffer = buf; bp.type = "bandpass"; bp.frequency.value = freq; bp.Q.value = q; g.gain.value = vol;
+    src.connect(bp).connect(g).connect(master); src.start(t);
+  };
+  return {
+    get on() { return on; },
+    set on(v) { on = v; try { localStorage.setItem("sfx", v ? "on" : "off"); } catch (_) {} },
+    key()    { noise({ dur: .025, freq: 1800, q: 4, vol: .8 }); blip({ f0: 240, f1: 150, dur: .05, type: "sine", vol: .5 }); },
+    tap()    { blip({ f0: 900, f1: 600, dur: .03, vol: .3 }); },
+    tick()   { blip({ f0: 2200, f1: 1600, dur: .016, vol: .32 }); noise({ dur: .012, freq: 4200, q: 7, vol: .25 }); },
+    snap()   { noise({ dur: .04, freq: 1400, q: 3, vol: .7 }); blip({ f0: 320, f1: 200, dur: .07, type: "sine", vol: .5 }); },
+    swOn()   { noise({ dur: .03, freq: 1500, q: 4, vol: .8 }); blip({ f0: 520, dur: .05, type: "triangle", vol: .45, when: .04 }); blip({ f0: 1050, dur: .09, type: "sine", vol: .4, when: .09 }); },
+    swOff()  { blip({ f0: 1050, dur: .05, type: "sine", vol: .3 }); noise({ dur: .03, freq: 1200, q: 4, vol: .6, when: .05 }); blip({ f0: 300, f1: 180, dur: .07, type: "sine", vol: .4, when: .06 }); },
+    roll(ms) {
+      const n = Math.floor(ms / 38);
+      for (let i = 0; i < n; i++) blip({ f0: 1400 + i * 14, dur: .012, vol: .12, when: i * .038 });
+      noise({ dur: .05, freq: 900, q: 3, vol: .55, when: n * .038 + .02 });
+      blip({ f0: 200, f1: 140, dur: .08, type: "sine", vol: .45, when: n * .038 + .02 });
+    },
+    over()   { blip({ f0: 740, f1: 990, dur: .05, type: "triangle", vol: .4 }); },
+    spring() { blip({ f0: 480, f1: 700, dur: .08, type: "triangle", vol: .45 }); noise({ dur: .02, freq: 2600, q: 5, vol: .3, when: .03 }); },
+    expand() { blip({ f0: 523, dur: .12, type: "sine", vol: .4 }); blip({ f0: 784, dur: .14, type: "sine", vol: .35, when: .07 }); blip({ f0: 1046, dur: .2, type: "sine", vol: .3, when: .14 }); noise({ dur: .18, freq: 900, q: 1.2, vol: .18 }); },
+  };
+})();
+const sndKey = $("#snd");
+const syncSnd = () => { sndKey.classList.toggle("is-current", Sfx.on); sndKey.setAttribute("aria-pressed", Sfx.on); };
+sndKey.addEventListener("click", () => { Sfx.on = !Sfx.on; syncSnd(); Sfx.key(); });
+syncSnd();
+
+/* ============================================================
+   交互 01 · 菜单键帽：悬停浮起 / 按下内陷 / 当前项保持按下 + 蓝灯
+   ============================================================ */
+const navKeys = $$("#nav .key");
+const secs = navKeys.map(k => document.getElementById(k.dataset.target));
+let navLock = 0;
+function setCurrent(i) {
+  navKeys.forEach((k, j) => {
+    k.classList.toggle("is-current", i === j);
+    i === j ? k.setAttribute("aria-current", "true") : k.removeAttribute("aria-current");
+  });
+}
+navKeys.forEach((k, i) => k.addEventListener("click", () => {
+  Sfx.key();
+  setCurrent(i);
+  navLock = performance.now() + 900;
+  secs[i].scrollIntoView({ behavior: mq.matches ? "auto" : "smooth", block: "start" });
+}));
+let navRaf = 0;
+addEventListener("scroll", () => {
+  if (navRaf) return;
+  navRaf = requestAnimationFrame(() => {
+    navRaf = 0;
+    if (performance.now() < navLock) return;
+    const line = innerHeight * .35;
+    let idx = 0;
+    secs.forEach((s, i) => { if (s.getBoundingClientRect().top <= line) idx = i; });
+    if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) idx = secs.length - 1;
+    setCurrent(idx);
+  });
+}, { passive: true });
+
+/* ============================================================
+   交互 04 · 机械滚轮计数器
+   每位一条 30 格转带（0-9 ×3），只向前滚；低位过渡时长更短
+   ============================================================ */
+function makeOdo(el, tpl) {
+  const wheels = [];
+  const chars = [...tpl];
+  const nDigits = chars.filter(c => c === "0").length;
+  let w = 0;
+  chars.forEach(c => {
+    if (c !== "0") {
+      const s = document.createElement("span");
+      s.className = "sep"; s.textContent = c; s.setAttribute("aria-hidden", "true");
+      el.appendChild(s); return;
+    }
+    const pos = nDigits - 1 - w++;                       // 0 = 最低位
+    const wheel = document.createElement("span");
+    wheel.className = "wheel"; wheel.setAttribute("aria-hidden", "true");
+    const strip = document.createElement("span");
+    strip.className = "strip";
+    strip.style.transitionDuration = (600 + pos * 170) + "ms";   // 低位更快
+    for (let i = 0; i < 30; i++) strip.appendChild(Object.assign(document.createElement("i"), { textContent: i % 10 }));
+    wheel.appendChild(strip); el.appendChild(wheel);
+    const o = { wheel, strip, cur: 0 };
+    const place = n => { strip.style.transform = `translateY(${-n * 100 / 30}%)`; };
+    strip.addEventListener("transitionend", e => {
+      if (e.propertyName !== "transform" || o.cur < 10) return;
+      strip.style.transition = "none"; o.cur -= 10; place(o.cur);
+      strip.offsetWidth; strip.style.transition = "";
+    });
+    o.set = d => {
+      if (o.cur % 10 === d) return;
+      let t = o.cur + ((d - o.cur % 10 + 10) % 10);
+      if (t > 29) {
+        strip.style.transition = "none"; o.cur %= 10; place(o.cur);
+        strip.offsetWidth; strip.style.transition = "";
+        t = o.cur + ((d - o.cur + 10) % 10);
+      }
+      o.cur = t; place(t);
+    };
+    wheels.push(o);
+  });
+  return {
+    set(n) {
+      const ds = String(Math.max(0, Math.round(n))).padStart(nDigits, "0").slice(-nDigits).split("").map(Number);
+      let started = false;
+      wheels.forEach((o, i) => {
+        o.set(ds[i]);
+        started = started || ds[i] !== 0 || i === nDigits - 1;
+        o.wheel.classList.toggle("lead", !started);
+      });
+      let k = 0;
+      el.setAttribute("aria-label", [...tpl].map(c => c === "0" ? ds[k++] : c).join("").replace(/^[0,]+(?=\d)/, ""));
+    }
+  };
+}
+const odos = {
+  output: makeOdo($("#odo-output"), "000,000"),
+  rate:   makeOdo($("#odo-rate"), "00.0"),
+  train:  makeOdo($("#odo-train"), "0,000"),
+};
+const PERIOD = {
+  month: { output: 18640,  rate: 876, train: 342,
+           d: { output: ["up", "较上月", "+4.2%"], rate: ["up", "较上月", "+1.8 pt"], train: ["down", "较上月", "−6.1%"] } },
+  year:  { output: 214380, rate: 912, train: 3968,
+           d: { output: ["up", "较去年", "+11.6%"], rate: ["up", "较去年", "+3.4 pt"], train: ["up", "较去年", "+18.9%"] } },
+};
+function showPeriod(p) {
+  const d = PERIOD[p];
+  Object.keys(odos).forEach(k => {
+    odos[k].set(d[k]);
+    const [dir, base, val] = d.d[k];
+    const el = $("#dl-" + k);
+    el.className = "delta " + dir;
+    el.innerHTML = `${dir === "up" ? "▲" : "▼"} ${base}<b>${val}</b>`;
+  });
+}
+const pKeys = $$("#period .key");
+pKeys.forEach(k => k.addEventListener("click", () => {
+  if (k.classList.contains("is-current")) return;
+  Sfx.key(); Sfx.roll(1000);
+  pKeys.forEach(x => { x.classList.toggle("is-current", x === k); x.setAttribute("aria-pressed", x === k); });
+  showPeriod(k.dataset.p);
+}));
+// 首屏：先渲染全 0，下一帧再设值，让数字从 0 滚起来
+Object.keys(odos).forEach(k => odos[k].set(0));
+requestAnimationFrame(() => requestAnimationFrame(() => showPeriod("month")));
+
+/* ============================================================
+   交互 02 · 旋钮调值：拖动旋转、每 5% 吸附、蓝色量程弧、图表联动
+   ============================================================ */
+const DEPTS = [["研发部", 94], ["产品部", 78], ["设计部", 85], ["市场部", 62], ["销售部", 71], ["运营部", 55], ["客服部", 88], ["人事部", 66]];
+const barsEl = $("#bars"), xsEl = $("#xs"), plot = $("#plot");
+[100, 75, 50, 25, 0].forEach(v => {
+  const g = document.createElement("div");
+  g.className = "gl"; g.style.bottom = v + "%"; g.innerHTML = `<span>${v}</span>`;
+  plot.insertBefore(g, barsEl);
+});
+const barEls = DEPTS.map(([n, v]) => {
+  const b = document.createElement("div");
+  b.className = "bar"; b.innerHTML = `<b>${v}</b>`;
+  barsEl.appendChild(b);
+  xsEl.appendChild(Object.assign(document.createElement("span"), { textContent: n }));
+  return b;
+});
+requestAnimationFrame(() => requestAnimationFrame(() => barEls.forEach((b, i) => b.style.height = DEPTS[i][1] + "%")));
+
+const dial = $("#dial"), arc = $("#arc"), trk = $("#trk"), knobRot = $("#knobRot");
+const R = 108, C = 2 * Math.PI * R, SWEEP = C * .75;
+trk.style.strokeDasharray = `${SWEEP} ${C}`;
+const ticks = [];
+for (let i = 0; i <= 20; i++) {
+  const a = (-135 + i * 13.5) * Math.PI / 180, major = i % 5 === 0;
+  const r1 = major ? 80 : 84, r2 = 92;
+  const ln = document.createElementNS(SVGNS, "line");
+  ln.setAttribute("class", "tk");
+  ln.setAttribute("x1", 120 + r1 * Math.sin(a)); ln.setAttribute("y1", 120 - r1 * Math.cos(a));
+  ln.setAttribute("x2", 120 + r2 * Math.sin(a)); ln.setAttribute("y2", 120 - r2 * Math.cos(a));
+  $("#ticks").appendChild(ln); ticks.push(ln);
+}
+let target = 60, raw = 60;
+function applyTarget(v, force) {
+  if (v === target && !force) return;
+  if (!force) Sfx.tick();
+  target = v;
+  const f = v / 100;
+  arc.style.strokeDasharray = `${f * SWEEP} ${C}`;
+  arc.style.opacity = v === 0 ? 0 : 1;
+  knobRot.style.transform = `rotate(${-135 + f * 270}deg)`;
+  ticks.forEach((t, i) => t.classList.toggle("on", i * 5 <= v));
+  $("#dialVal").textContent = v;
+  dial.setAttribute("aria-valuenow", v); dial.setAttribute("aria-valuetext", v + "%");
+  $("#tline").style.bottom = v + "%";
+  $("#ttag").textContent = "目标 " + v + "%";
+  let hit = 0;
+  barEls.forEach((b, i) => { const h = DEPTS[i][1] >= v; b.classList.toggle("hit", h); hit += h; });
+  $("#rdTarget").textContent = v + "%"; $("#rdHit").textContent = hit; $("#rdMiss").textContent = DEPTS.length - hit;
+}
+const snap5 = v => clamp(Math.round(v / 5) * 5, 0, 100);
+let knobDrag = null;
+const angleOf = e => {
+  const r = dial.getBoundingClientRect();
+  return Math.atan2(e.clientX - (r.left + r.width / 2), -(e.clientY - (r.top + r.height / 2))) * 180 / Math.PI;
+};
+dial.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
+  dial.setPointerCapture(e.pointerId);
+  dial.classList.add("grabbing");
+  const rect = dial.getBoundingClientRect();
+  const dist = Math.hypot(e.clientX - (rect.left + rect.width / 2), e.clientY - (rect.top + rect.height / 2));
+  const a = angleOf(e);
+  if (dist > 90 * rect.width / 240) {                    // 点在刻度环上：直接跳到该角度
+    raw = Math.abs(a) > 135 ? (a > 0 ? 100 : 0) : (a + 135) / 270 * 100;
+    applyTarget(snap5(raw));
+  }
+  knobDrag = { id: e.pointerId, last: a };
+});
+dial.addEventListener("pointermove", e => {
+  if (!knobDrag || e.pointerId !== knobDrag.id) return;
+  const a = angleOf(e);
+  let d = a - knobDrag.last;
+  if (d > 180) d -= 360; else if (d < -180) d += 360;    // 跨越正下方时取最短转角
+  knobDrag.last = a;
+  raw = clamp(raw + d / 270 * 100, 0, 100);
+  applyTarget(snap5(raw));
+});
+const knobEnd = e => {
+  if (!knobDrag || (e && e.pointerId !== knobDrag.id)) return;
+  knobDrag = null; dial.classList.remove("grabbing"); Sfx.snap();
+  raw = target;
+};
+dial.addEventListener("pointerup", knobEnd);
+dial.addEventListener("pointercancel", knobEnd);
+dial.addEventListener("lostpointercapture", knobEnd);
+dial.addEventListener("keydown", e => {
+  const step = { ArrowUp: 5, ArrowRight: 5, ArrowDown: -5, ArrowLeft: -5, PageUp: 10, PageDown: -10 }[e.key];
+  if (step === undefined && e.key !== "Home" && e.key !== "End") return;
+  e.preventDefault();
+  raw = e.key === "Home" ? 0 : e.key === "End" ? 100 : clamp(target + step, 0, 100);
+  applyTarget(snap5(raw));
+});
+applyTarget(60, true);
+
+/* ============================================================
+   交互 03 · 开关通电：滑块吸附回弹、指示灯、图表灰度→彩色
+   ============================================================ */
+const MODS = [
+  { name: "OKR 追踪", desc: "目标拆解、进度回写与季度复盘", stat: "覆盖 128 人", c: ["#2F4BD0", "#5B76F0"], bars: [38, 52, 46, 64, 58, 72, 66, 80, 74, 90], on: true },
+  { name: "360° 评估", desc: "多维度互评，自动汇总匿名反馈", stat: "回收率 93%", c: ["#1F9D8B", "#52C7B3"], bars: [60, 44, 70, 56, 82, 62, 76, 50, 68, 86], on: false },
+  { name: "奖金核算", desc: "绩效系数联动奖金池，一键出表", stat: "本季 ¥1.28M", c: ["#E3A03A", "#F2C46D"], bars: [30, 48, 42, 66, 54, 78, 60, 84, 72, 94], on: false },
+];
+const TRAVEL = 30;
+MODS.forEach(m => {
+  const el = document.createElement("article");
+  el.className = "module";
+  el.innerHTML = `
+    <div class="mod-head">
+      <h3>${m.name}</h3>
+      <div class="mod-ctl"><i class="led"></i>
+        <button class="sw" role="switch" aria-checked="false" aria-label="${m.name}电源"><i class="thumb"></i></button></div>
+    </div>
+    <p>${m.desc}</p>
+    <div class="mini" aria-hidden="true">${m.bars.map(h => `<i style="height:${h}%;background:linear-gradient(180deg,${m.c[1]},${m.c[0]})"></i>`).join("")}</div>
+    <div class="mod-foot"><span class="mod-state">待机</span><b>${m.stat}</b></div>`;
+  $("#modules").appendChild(el);
+  const sw = $(".sw", el), led = $(".led", el), st = $(".mod-state", el);
+  const isOn = () => sw.getAttribute("aria-checked") === "true";
+  const setOn = (on, quiet) => {
+    if (!quiet) on ? Sfx.swOn() : Sfx.swOff();
+    sw.setAttribute("aria-checked", on);
+    el.classList.toggle("on", on); led.classList.toggle("on", on);
+    st.textContent = on ? "运行中" : "待机";
+  };
+  let d = null;
+  sw.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    sw.setPointerCapture(e.pointerId);
+    d = { id: e.pointerId, x: e.clientX, base: isOn() ? TRAVEL : 0, moved: false, cur: 0 };
+    sw.classList.add("is-drag");
+  });
+  sw.addEventListener("pointermove", e => {
+    if (!d || e.pointerId !== d.id) return;
+    const dx = e.clientX - d.x;
+    if (Math.abs(dx) > 3) d.moved = true;
+    if (d.moved) { d.cur = clamp(d.base + dx, 0, TRAVEL); sw.style.setProperty("--tx", d.cur + "px"); }
+  });
+  const end = cancel => e => {
+    if (!d || e.pointerId !== d.id) return;
+    const s = d; d = null;
+    sw.classList.remove("is-drag"); sw.style.removeProperty("--tx");
+    setOn(cancel ? isOn() : s.moved ? s.cur > TRAVEL / 2 : !isOn());
+  };
+  sw.addEventListener("pointerup", end(false));
+  sw.addEventListener("pointercancel", end(true));
+  sw.addEventListener("click", e => { if (e.detail === 0) setOn(!isOn()); });   // 键盘 / 程序触发
+  setOn(m.on, true);
+});
+
+/* ============================================================
+   交互 05 · 卡片抽拉：拖拽抽出、后方卡片按重量弹簧下沉、阈值展开
+   ============================================================ */
+const WEIGHTS = [40, 25, 20, 15];
+const DIMS = ["OKR 完成率", "交付及时率", "协作评分", "成长投入"];
+const EMP = [
+  { name: "林知远", role: "前端工程师 · 研发部", s: [96, 93, 91, 88], trend: [82, 86, 90], rank: 1,
+    note: "主导绩效后台重构，交付提前 5 天，代码评审一次通过。建议纳入核心技术梯队。" },
+  { name: "苏念", role: "产品经理 · 产品部", s: [92, 90, 88, 84], trend: [80, 84, 86], rank: 2,
+    note: "需求拆解清晰、排期准确，跨部门协作表现突出。下季度可尝试独立带产品线。" },
+  { name: "陈屿", role: "数据分析师 · 运营部", s: [86, 88, 84, 80], trend: [78, 81, 83], rank: 3,
+    note: "搭建全员绩效数据看板，报表准确率全组最高。协作主动性仍有提升空间。" },
+];
+EMP.forEach(e => { e.score = Math.round(e.s.reduce((a, v, i) => a + v * WEIGHTS[i] / 100, 0)); e.trend = [...e.trend, e.score]; });
+
+const THRESHOLD = 120;
+const deck = $("#deck"), status = $("#deckStatus"), msg = $("#deckMsg"), meter = $("#deckMeter"), distEl = $("#deckDist");
+const overlay = $("#overlay"), detail = $("#detail");
+const spr = x => ({ x, v: 0, to: x });
+const cards = EMP.map(e => {
+  const el = document.createElement("article");
+  el.className = "pcard";
+  el.innerHTML = `
+    <div class="pc-top">
+      <div class="pc-ava">${e.name[0]}</div>
+      <div><h3>${e.name}</h3><p>${e.role}</p></div>
+      <div class="pc-score"><b>${e.score}</b><small>综合分</small></div>
+    </div>
+    <ul class="pc-dims">${e.s.slice(0, 3).map((v, i) => `<li><span>${DIMS[i]}</span><i><u style="width:${v}%"></u></i><b>${v}</b></li>`).join("")}</ul>
+    <span class="pc-grip"></span>`;
+  deck.appendChild(el);
+  return { e, el, x: spr(0), y: spr(0), r: spr(0), s: spr(1), dragging: false };
+});
+let order = [...cards], pull = 0, isOpen = false;
+
+// 弹簧参数按“重量”区分：越靠后越重，质量大、阻尼小，沉得慢、回弹更明显
+const SLOT = [{ k: 300, m: 1, z: .45 }, { k: 260, m: 1, z: .40 }, { k: 240, m: 1.8, z: .32 }];
+function retarget() {
+  order.forEach((c, i) => {
+    if (c.dragging) return;
+    const sink = i === 0 ? 0 : pull * (i === 1 ? 14 : 28);
+    const shrink = i === 0 ? 0 : pull * (i === 1 ? .015 : .03);
+    c.x.to = 0; c.r.to = 0; c.y.to = i * 16 + sink; c.s.to = 1 - i * .05 - shrink;
+  });
+  run();
+}
+function paint(c) {
+  c.el.style.transform = `translate3d(${c.x.x}px,${c.y.x}px,0) rotate(${c.r.x}deg) scale(${c.s.x})`;
+}
+function layout() {
+  order.forEach((c, i) => {
+    c.el.style.zIndex = 10 - i;
+    c.el.classList.toggle("top", i === 0);
+    c.el.tabIndex = i === 0 ? 0 : -1;
+    i === 0 ? c.el.setAttribute("role", "button") : c.el.removeAttribute("role");
+    c.el.setAttribute("aria-label", i === 0 ? `查看 ${c.e.name} 的绩效详情` : "");
+    c.el.setAttribute("aria-hidden", i === 0 ? "false" : "true");
+  });
+}
+let raf = 0, last = 0;
+function frame(t) {
+  const dt = Math.min(.032, (t - last) / 1000); last = t;
+  const n = 4, h = dt / n;
+  let busy = false;
+  order.forEach((c, i) => {
+    const P = SLOT[i], damp = 2 * P.z * Math.sqrt(P.k * P.m);
+    [["x", .04], ["y", .04], ["r", .02], ["s", .0004]].forEach(([key, eps]) => {
+      const sp = c[key];
+      if (c.dragging || mq.matches) { if (!c.dragging) { sp.x = sp.to; sp.v = 0; } return; }
+      for (let j = 0; j < n; j++) {
+        sp.v += ((P.k * (sp.to - sp.x) - damp * sp.v) / P.m) * h;
+        sp.x += sp.v * h;
+      }
+      if (Math.abs(sp.to - sp.x) < eps && Math.abs(sp.v) < eps * 10) { sp.x = sp.to; sp.v = 0; } else busy = true;
+    });
+    paint(c);
+  });
+  raf = busy ? requestAnimationFrame(frame) : 0;
+}
+function run() { if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } }
+cards.forEach((c, i) => { c.y.x = c.y.to = i * 16; c.s.x = c.s.to = 1 - i * .05; paint(c); });
+layout();
+
+function setStatus(state, dist = 0) {
+  if (status.dataset.s !== state) {
+    status.dataset.s = state;
+    msg.textContent = { idle: "按住顶部卡片向外拖拽", under: "未超过阈值，松手归位", over: "拉出查看详情，松手展开" }[state];
+    $("#deckLed").classList.toggle("on", state === "over");
+  }
+  meter.style.width = clamp(dist / THRESHOLD, 0, 1) * 100 + "%";
+  distEl.textContent = `${Math.round(dist)} / ${THRESHOLD} px`;
+}
+
+let drag = null;
+deck.addEventListener("pointerdown", e => {
+  const top = order[0];
+  if (isOpen || e.button !== 0 || !top.el.contains(e.target)) return;
+  top.el.setPointerCapture(e.pointerId);
+  top.dragging = true; top.el.classList.add("drag");
+  top.x.v = top.y.v = top.r.v = top.s.v = 0;
+  drag = { id: e.pointerId, card: top, sx: e.clientX, sy: e.clientY, dist: 0 };
+  Sfx.tap();
+  setStatus("under", 0);
+});
+deck.addEventListener("pointermove", e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy, c = drag.card;
+  drag.dist = Math.hypot(dx, dy);
+  c.x.x = c.x.to = dx; c.y.x = c.y.to = dy; c.r.x = c.r.to = clamp(dx * .04, -9, 9); c.s.x = c.s.to = 1;
+  pull = clamp(drag.dist / THRESHOLD, 0, 1);
+  const was = status.dataset.s;
+  setStatus(drag.dist > THRESHOLD ? "over" : "under", drag.dist);
+  if (was !== status.dataset.s) Sfx.over();
+  retarget();
+});
+function release(e, cancelled) {
+  if (!drag || (e && e.pointerId !== drag.id)) return;
+  const c = drag.card, over = !cancelled && drag.dist > THRESHOLD;
+  const rect = c.el.getBoundingClientRect();
+  drag = null; pull = 0;
+  c.dragging = false; c.el.classList.remove("drag");
+  setStatus("idle", 0);
+  retarget();
+  if (over) { Sfx.expand(); openDetail(c, rect); } else Sfx.spring();
+}
+deck.addEventListener("pointerup", e => release(e, false));
+deck.addEventListener("pointercancel", e => release(e, true));
+deck.addEventListener("lostpointercapture", e => release(e, true));
+deck.addEventListener("keydown", e => {
+  if ((e.key === "Enter" || e.key === " ") && e.target === order[0].el) {
+    e.preventDefault(); openDetail(order[0], order[0].el.getBoundingClientRect());
+  }
+});
+
+function flipTransform(from, to) {
+  const dx = from.left + from.width / 2 - (to.left + to.width / 2), dy = from.top + from.height / 2 - (to.top + to.height / 2);
+  return `translate(${dx}px,${dy}px) scale(${from.width / to.width},${from.height / to.height})`;
+}
+function openDetail(c, fromRect) {
+  const e = c.e;
+  isOpen = true;
+  detail.classList.remove("closing");
+  detail.innerHTML = `<div class="detail-in">
+    <div class="d-head"><div class="pc-ava">${e.name[0]}</div>
+      <div><h3>${e.name}</h3><p>${e.role}</p></div>
+      <div class="pc-score"><b>${e.score}</b><small>综合分 · 第 ${e.rank} 名</small></div></div>
+    <table class="d-tbl">
+      <thead><tr><th>考核维度</th><th class="n">得分</th><th class="n">权重</th></tr></thead>
+      <tbody>${e.s.map((v, i) => `<tr><td>${DIMS[i]}</td><td class="n">${v}</td><td class="n">${WEIGHTS[i]}%</td></tr>`).join("")}</tbody>
+      <tfoot><tr><td>加权综合</td><td class="n blue">${e.score}</td><td class="n">100%</td></tr></tfoot>
+    </table>
+    <div class="d-trend">${e.trend.map(v => `<div style="height:${v}%"><b>${v}</b></div>`).join("")}</div>
+    <div class="d-xs"><span>Q1</span><span>Q2</span><span>Q3</span><span>本季</span></div>
+    <p class="d-note"><b>主管评语：</b>${e.note}</p>
+    <button class="key" id="dClose">收起卡片</button></div>`;
+  overlay.classList.add("show"); overlay.setAttribute("aria-hidden", "false");
+  detail.classList.add("from");
+  detail.style.transition = "none"; detail.style.transform = "";
+  const to = detail.getBoundingClientRect();
+  detail.style.transform = flipTransform(fromRect, to);
+  detail.offsetWidth;
+  detail.style.transition = ""; detail.style.transform = "";
+  detail.classList.remove("from");
+  $("#dClose").addEventListener("click", closeDetail);
+  $("#dClose").focus({ preventScroll: true });
+}
+function closeDetail() {
+  if (!isOpen) return;
+  isOpen = false;
+  Sfx.tap();
+  const top = order[0];
+  detail.classList.add("closing");
+  detail.style.transform = flipTransform(top.el.getBoundingClientRect(), detail.getBoundingClientRect());
+  overlay.classList.remove("show"); overlay.setAttribute("aria-hidden", "true");
+  setTimeout(() => {
+    detail.style.transform = ""; detail.classList.remove("closing");
+    order.push(order.shift());                          // 看完的卡片放到队尾，下一张露出
+    layout(); retarget();
+    order[0].el.focus({ preventScroll: true });
+  }, 230);
+}
+overlay.addEventListener("pointerdown", e => { if (e.target === overlay) closeDetail(); });
+document.addEventListener("keydown", e => {
+  if (!isOpen) return;
+  if (e.key === "Escape") closeDetail();
+  else if (e.key === "Tab") { e.preventDefault(); $("#dClose").focus(); }
+});
+})();
+</script>
+</body>
+</html>
